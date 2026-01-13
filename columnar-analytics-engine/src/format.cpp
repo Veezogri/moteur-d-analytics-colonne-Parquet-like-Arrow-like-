@@ -5,6 +5,7 @@
 #include "format.h"
 #include "encoding.h"
 #include <fstream>
+#include <iostream>
 #include <stdexcept>
 #include <cstring>
 #include <algorithm>
@@ -205,7 +206,10 @@ FileWriter::~FileWriter() {
     if (impl_) {
         try {
             close();
+        } catch (const std::exception& e) {
+            std::cerr << "Warning: Failed to close file in destructor: " << e.what() << std::endl;
         } catch (...) {
+            std::cerr << "Warning: Unknown error closing file in destructor" << std::endl;
         }
     }
 }
@@ -466,10 +470,16 @@ struct FileReader::Impl {
 
     void readMetadata() {
         uint32_t num_columns = readUInt32(file);
+        if (num_columns > 10000) {
+            throw std::runtime_error("Invalid metadata: too many columns");
+        }
         metadata.schema.columns.resize(num_columns);
 
         for (size_t i = 0; i < num_columns; i++) {
             uint32_t name_len = readUInt32(file);
+            if (name_len > 1024) {
+                throw std::runtime_error("Invalid metadata: column name too long");
+            }
             std::string name(name_len, '\0');
             file.read(&name[0], name_len);
 
@@ -479,11 +489,17 @@ struct FileReader::Impl {
         }
 
         uint32_t num_row_groups = readUInt32(file);
+        if (num_row_groups > 100000) {
+            throw std::runtime_error("Invalid metadata: too many row groups");
+        }
         metadata.row_groups.resize(num_row_groups);
 
         for (size_t i = 0; i < num_row_groups; i++) {
             metadata.row_groups[i].num_rows = readUInt32(file);
             uint32_t num_cc = readUInt32(file);
+            if (num_cc != num_columns) {
+                throw std::runtime_error("Invalid metadata: column count mismatch");
+            }
             metadata.row_groups[i].column_chunks.resize(num_cc);
 
             for (size_t j = 0; j < num_cc; j++) {
@@ -491,6 +507,9 @@ struct FileReader::Impl {
                 cc.file_offset = readUInt64(file);
                 cc.total_size = readUInt64(file);
                 uint32_t num_pages = readUInt32(file);
+                if (num_pages > 10000) {
+                    throw std::runtime_error("Invalid metadata: too many pages");
+                }
                 cc.page_headers.resize(num_pages);
 
                 for (size_t k = 0; k < num_pages; k++) {
