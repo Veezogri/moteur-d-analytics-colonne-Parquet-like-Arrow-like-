@@ -98,27 +98,37 @@ Batch Scanner::next() {
         throw std::runtime_error("No more batches");
     }
 
-    const auto& rg = reader_->metadata().row_groups[current_row_group_];
+    // Loop instead of recursion to avoid stack overflow on many skipped row groups
+    while (true) {
+        const auto& rg = reader_->metadata().row_groups[current_row_group_];
 
-    bool can_skip = false;
-    for (const auto& filter : filters_) {
-        size_t filter_col_idx = reader_->schema().columnIndex(filter.column);
-        const auto& cc = rg.column_chunks[filter_col_idx];
+        bool can_skip = false;
+        for (const auto& filter : filters_) {
+            size_t filter_col_idx = reader_->schema().columnIndex(filter.column);
+            const auto& cc = rg.column_chunks[filter_col_idx];
 
-        if (!cc.page_headers.empty()) {
-            if (filter.canSkipPage(cc.page_headers[0].stats)) {
-                can_skip = true;
-                break;
+            if (!cc.page_headers.empty()) {
+                if (filter.canSkipPage(cc.page_headers[0].stats)) {
+                    can_skip = true;
+                    break;
+                }
             }
         }
+
+        if (can_skip) {
+            current_row_group_++;
+            current_offset_ = 0;
+            if (!hasNext()) {
+                throw std::runtime_error("No more batches after skipping");
+            }
+            continue;  // Skip to next row group
+        }
+
+        // Found a non-skippable row group, process it
+        break;
     }
 
-    if (can_skip) {
-        current_row_group_++;
-        current_offset_ = 0;
-        return next();
-    }
-
+    const auto& rg = reader_->metadata().row_groups[current_row_group_];
     Batch batch;
     batch.column_names = selected_columns_;
     batch.num_rows = rg.num_rows;

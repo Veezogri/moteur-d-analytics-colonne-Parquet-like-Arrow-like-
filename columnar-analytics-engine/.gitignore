@@ -22,6 +22,9 @@ results/
 *.csv
 *.json
 
+# Test data files
+*.col
+
 # OS
 .DS_Store
 Thumbs.db

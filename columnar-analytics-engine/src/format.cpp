@@ -695,9 +695,12 @@ std::vector<std::string> FileReader::readStringColumn(size_t row_group_idx, size
         std::vector<std::string> result;
         result.reserve(ph.num_values);
 
-        const uint32_t* offsets = reinterpret_cast<const uint32_t*>(data.data());
-        const char* string_data = reinterpret_cast<const char*>(data.data()) +
-                                  (ph.num_values + 1) * sizeof(uint32_t);
+        // H3 fix: Use memcpy for portable unaligned access instead of reinterpret_cast
+        size_t offset_array_size = (ph.num_values + 1) * sizeof(uint32_t);
+        std::vector<uint32_t> offsets(ph.num_values + 1);
+        std::memcpy(offsets.data(), data.data(), offset_array_size);
+
+        const char* string_data = reinterpret_cast<const char*>(data.data()) + offset_array_size;
 
         for (uint32_t i = 0; i < ph.num_values; i++) {
             uint32_t start = offsets[i];
